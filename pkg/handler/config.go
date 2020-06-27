@@ -1,9 +1,8 @@
 package handler
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"golang.org/x/crypto/bcrypt"
 	"net"
 	"sort"
 	"strings"
@@ -13,7 +12,6 @@ import (
 	"github.com/glauth/glauth/pkg/stats"
 	"github.com/nmcclain/ldap"
 	"github.com/op/go-logging"
-	"github.com/pquerna/otp/totp"
 )
 
 type configHandler struct {
@@ -90,71 +88,8 @@ func (h configHandler) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultC
 		return ldap.LDAPResultInvalidCredentials, nil
 	}
 
-	validotp := false
-
-	if len(user.Yubikey) == 0 && len(user.OTPSecret) == 0 {
-		validotp = true
-	}
-
-	if len(user.Yubikey) > 0 && h.yubikeyAuth != nil {
-		if len(bindSimplePw) > 44 {
-			otp := bindSimplePw[len(bindSimplePw)-44:]
-			yubikeyid := otp[0:12]
-			bindSimplePw = bindSimplePw[:len(bindSimplePw)-44]
-
-			if user.Yubikey == yubikeyid {
-				_, ok, _ := h.yubikeyAuth.Verify(otp)
-
-				if ok {
-					validotp = true
-				}
-			}
-		}
-	}
-
-	// Store the full bind password provided before possibly modifying
-	// in the otp check
-	// Generate a hash of the provided password
-	hashFull := sha256.New()
-	hashFull.Write([]byte(bindSimplePw))
-
-	// Test OTP if exists
-	if len(user.OTPSecret) > 0 && !validotp {
-		if len(bindSimplePw) > 6 {
-			otp := bindSimplePw[len(bindSimplePw)-6:]
-			bindSimplePw = bindSimplePw[:len(bindSimplePw)-6]
-
-			validotp = totp.Validate(otp, user.OTPSecret)
-		}
-	}
-
-	// finally, validate user's pw
-
-	// check app passwords first
-	for index, appPw := range user.PassAppSHA256 {
-
-		if appPw != hex.EncodeToString(hashFull.Sum(nil)) {
-			h.log.Debug(fmt.Sprintf("Attempted to bind app pw #%d - failure as %s from %s", index, bindDN, conn.RemoteAddr().String()))
-		} else {
-			stats.Frontend.Add("bind_successes", 1)
-			h.log.Debug("Bind success using app pw #%d as %s from %s", index, bindDN, conn.RemoteAddr().String())
-			return ldap.LDAPResultSuccess, nil
-		}
-
-	}
-
-	// then check main password with the hash
-	hash := sha256.New()
-	hash.Write([]byte(bindSimplePw))
-
-	// Then ensure the OTP is valid before checking
-	if !validotp {
-		h.log.Warning(fmt.Sprintf("Bind Error: invalid OTP token as %s from %s", bindDN, conn.RemoteAddr().String()))
-		return ldap.LDAPResultInvalidCredentials, nil
-	}
-
 	// Now, check the hash
-	if user.PassSHA256 != hex.EncodeToString(hash.Sum(nil)) {
+	if bcrypt.CompareHashAndPassword([]byte(user.PassBcrypt), []byte(bindSimplePw)) != nil {
 		h.log.Warning(fmt.Sprintf("Bind Error: invalid credentials as %s from %s", bindDN, conn.RemoteAddr().String()))
 		return ldap.LDAPResultInvalidCredentials, nil
 	}
@@ -164,7 +99,7 @@ func (h configHandler) Bind(bindDN, bindSimplePw string, conn net.Conn) (resultC
 	return ldap.LDAPResultSuccess, nil
 }
 
-//
+
 func (h configHandler) Search(bindDN string, searchReq ldap.SearchRequest, conn net.Conn) (result ldap.ServerSearchResult, err error) {
 	bindDN = strings.ToLower(bindDN)
 	baseDN := strings.ToLower("," + h.cfg.Backend.BaseDN)

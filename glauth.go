@@ -10,7 +10,6 @@ import (
 	docopt "github.com/docopt/docopt-go"
 	"github.com/fsnotify/fsnotify"
 	"github.com/glauth/glauth/pkg/config"
-	"github.com/glauth/glauth/pkg/frontend"
 	"github.com/glauth/glauth/pkg/server"
 	"github.com/glauth/glauth/pkg/stats"
 	"github.com/jinzhu/copier"
@@ -113,12 +112,6 @@ func main() {
 func startService() {
 	// stats
 	stats.General.Set("version", stats.Stringer(LastGitTag))
-
-	// web API
-	if activeConfig.API.Enabled {
-		log.Debug("Web API enabled")
-		go frontend.RunAPI(log, activeConfig)
-	}
 
 	startConfigWatcher()
 

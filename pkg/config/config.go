@@ -39,12 +39,10 @@ type API struct {
 type User struct {
 	Name          string
 	OtherGroups   []int
-	PassSHA256    string
-	PassAppSHA256 []string
+	PassBcrypt	  string
+	PassAppBcrypt []string
 	PrimaryGroup  int
 	SSHKeys       []string
-	OTPSecret     string
-	Yubikey       string
 	Disabled      bool
 	UnixID        int
 	Mail          string
